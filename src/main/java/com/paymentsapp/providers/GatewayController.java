@@ -114,6 +114,8 @@ public class GatewayController {
             case "SHOPS_GATE" -> "SHP";
             case "TRAVEL_GATE" -> "TRV";
             case "INSURANCE_GATE" -> "INS";
+            case "SECURITY_GATE" -> "SEC";
+            case "CHARITY_GATE" -> "CHR";
             default -> "GMP";
         };
     }
