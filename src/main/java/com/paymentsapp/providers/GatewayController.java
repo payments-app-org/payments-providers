@@ -54,13 +54,17 @@ public class GatewayController {
         Random rnd = new Random(key.hashCode());
         java.time.YearMonth month = java.time.YearMonth.now();
         String monthName = java.time.format.DateTimeFormatter.ofPattern("LLLL yyyy", java.util.Locale.of("ru")).format(month);
-        String[][] services = {
+        String[][] services = "UTILITIES".equals(req.group()) ? new String[][] {
+                {"Жилищно-коммунальные услуги", "Содержание жилья, отопление, вода", "4200", "9800"},
+                {"Электроэнергия", "По показаниям счётчика", "900", "2600"},
+                {"Взнос на капитальный ремонт", "Фонд капремонта", "1100", "2400"},
+                {"Вывоз ТКО", "Региональный оператор", "300", "700"}} : new String[][] {
                 {"Питание в школе", "Завтраки и обеды", "2400", "4200"},
                 {"Группа продлённого дня", "Присмотр и уход после уроков", "2000", "3500"},
                 {"Кружок «Робототехника»", "Дополнительное образование", "3000", "6000"},
                 {"Секция плавания", "Бассейн, 8 занятий", "2500", "4500"},
                 {"Подготовка к ЕГЭ", "Математика, 8 занятий", "4000", "8000"}};
-        int count = 1 + rnd.nextInt(3);
+        int count = 1 + rnd.nextInt(Math.min(3, services.length));
         java.util.List<Invoice> list = new java.util.ArrayList<>();
         java.util.Set<Integer> used = new java.util.HashSet<>();
         while (list.size() < count) {
@@ -116,6 +120,9 @@ public class GatewayController {
             case "INSURANCE_GATE" -> "INS";
             case "SECURITY_GATE" -> "SEC";
             case "CHARITY_GATE" -> "CHR";
+            case "UTILITIES_GATE" -> "UTL";
+            case "INTERNET_GATE" -> "NET";
+            case "MISC_GATE" -> "MSC";
             default -> "GMP";
         };
     }
@@ -138,7 +145,7 @@ public class GatewayController {
                              Map<String, String> fields, boolean issueVoucher) {
     }
 
-    public record InvoiceRequest(String providerCode, Map<String, String> fields) {
+    public record InvoiceRequest(String providerCode, String group, Map<String, String> fields) {
     }
 
     public record Invoice(String externalId, String title, String description, BigDecimal amount, java.time.LocalDate dueDate) {
