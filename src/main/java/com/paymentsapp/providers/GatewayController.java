@@ -54,7 +54,8 @@ public class GatewayController {
         Random rnd = new Random(key.hashCode());
         java.time.YearMonth month = java.time.YearMonth.now();
         String monthName = java.time.format.DateTimeFormatter.ofPattern("LLLL yyyy", java.util.Locale.of("ru")).format(month);
-        String[][] services = "UTILITIES".equals(req.group()) ? new String[][] {
+        String[][] services = "INTERNET".equals(req.group()) ? new String[][] {
+                {"Абонентская плата", "Интернет и ТВ по тарифу", "550", "1490"}} : "UTILITIES".equals(req.group()) ? new String[][] {
                 {"Жилищно-коммунальные услуги", "Содержание жилья, отопление, вода", "4200", "9800"},
                 {"Электроэнергия", "По показаниям счётчика", "900", "2600"},
                 {"Взнос на капитальный ремонт", "Фонд капремонта", "1100", "2400"},
