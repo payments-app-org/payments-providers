@@ -41,6 +41,43 @@ public class GatewayController {
         return first != null ? first : result;
     }
 
+    // Счета у поставщика по данным плательщика. «Случайные», но одинаковые для одних и тех же данных.
+    // Данные, оканчивающиеся на 0, — счетов нет.
+    @PostMapping("/invoices")
+    public java.util.List<Invoice> invoices(@RequestBody InvoiceRequest req) {
+        Map<String, String> fields = req.fields() == null ? Map.of() : req.fields();
+        String key = req.providerCode() + "|" + new java.util.TreeMap<>(fields).values().stream()
+                .filter(v -> v != null && v.matches(".*\\d.*")).reduce("", String::concat);
+        if (key.endsWith("0")) {
+            return java.util.List.of();
+        }
+        Random rnd = new Random(key.hashCode());
+        java.time.YearMonth month = java.time.YearMonth.now();
+        String monthName = java.time.format.DateTimeFormatter.ofPattern("LLLL yyyy", java.util.Locale.of("ru")).format(month);
+        String[][] services = {
+                {"Питание в школе", "Завтраки и обеды", "2400", "4200"},
+                {"Группа продлённого дня", "Присмотр и уход после уроков", "2000", "3500"},
+                {"Кружок «Робототехника»", "Дополнительное образование", "3000", "6000"},
+                {"Секция плавания", "Бассейн, 8 занятий", "2500", "4500"},
+                {"Подготовка к ЕГЭ", "Математика, 8 занятий", "4000", "8000"}};
+        int count = 1 + rnd.nextInt(3);
+        java.util.List<Invoice> list = new java.util.ArrayList<>();
+        java.util.Set<Integer> used = new java.util.HashSet<>();
+        while (list.size() < count) {
+            int i = rnd.nextInt(services.length);
+            if (!used.add(i)) {
+                continue;
+            }
+            String[] s = services[i];
+            int min = Integer.parseInt(s[2]);
+            int max = Integer.parseInt(s[3]);
+            int amount = min + rnd.nextInt(max - min) / 10 * 10;
+            list.add(new Invoice(Integer.toHexString(key.hashCode()) + "-" + month + "-" + i, s[0] + ", " + monthName, s[1],
+                    BigDecimal.valueOf(amount), month.atDay(25)));
+        }
+        return list;
+    }
+
     @GetMapping("/payments/{paymentId}")
     public ResponseEntity<Result> find(@PathVariable UUID paymentId) {
         Result r = results.get(paymentId);
@@ -54,6 +91,9 @@ public class GatewayController {
                 return switch (integration) {
                     case "OPERATOR_GATE" -> "Оператор не нашёл абонента с таким номером";
                     case "TRANSPORT_GATE" -> "Поставщик не нашёл карту или лицевой счёт";
+                    case "EMONEY_GATE" -> "Кошелёк не найден";
+                    case "INSURANCE_GATE" -> "Страховая не нашла полис или счёт";
+                    case "TRAVEL_GATE" -> "Заказ не найден у туроператора";
                     default -> "Поставщик не нашёл аккаунт";
                 };
             }
@@ -69,6 +109,11 @@ public class GatewayController {
             case "OPERATOR_GATE" -> "OPR";
             case "TRANSPORT_GATE" -> "TRN";
             case "GAMES_GATE" -> "GMS";
+            case "EMONEY_GATE" -> "EMN";
+            case "EDUCATION_GATE" -> "EDU";
+            case "SHOPS_GATE" -> "SHP";
+            case "TRAVEL_GATE" -> "TRV";
+            case "INSURANCE_GATE" -> "INS";
             default -> "GMP";
         };
     }
@@ -89,6 +134,12 @@ public class GatewayController {
 
     public record PayRequest(UUID paymentId, String integration, String providerCode, BigDecimal amount,
                              Map<String, String> fields, boolean issueVoucher) {
+    }
+
+    public record InvoiceRequest(String providerCode, Map<String, String> fields) {
+    }
+
+    public record Invoice(String externalId, String title, String description, BigDecimal amount, java.time.LocalDate dueDate) {
     }
 
     public record Result(UUID paymentId, String status, String externalId, String voucherCode, String message) {
