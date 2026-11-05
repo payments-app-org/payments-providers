@@ -7,3 +7,22 @@ spring:
   threads:
     virtual:
       enabled: true
+  # Redis: итоги оплат у шлюзов (идемпотентность) — переживают рестарт, одни на все поды
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      repositories:
+        enabled: false
+
+providers:
+  # Сколько хранить итог оплаты у шлюза (повтор и запрос статуса)
+  results-ttl: 7d
+  # «Поставщик думает» — задержка ответа шлюза
+  think-min: 200ms
+  think-max: 600ms
+
+# Общая библиотека libs/platform: даты начислений и счетов — по московскому времени
+platform:
+  time:
+    zone: Europe/Moscow
