@@ -11,10 +11,17 @@ import tools.jackson.databind.json.JsonMapper;
 class Results {
 
     private static final String GATEWAY_PAYMENTS = "providers:payment:";
+    private static final String PENDING_PAYMENTS = "providers:pending:";
 
     @Bean
     IdempotentResults<GatewayController.Result> gatewayResults(StringRedisTemplate redis, JsonMapper json,
                                                               ProvidersProperties props) {
         return new IdempotentResults<>(redis, json, GATEWAY_PAYMENTS, props.resultsTtl(), GatewayController.Result.class);
+    }
+
+    @Bean
+    IdempotentResults<GatewayController.Pending> pendingResults(StringRedisTemplate redis, JsonMapper json,
+                                                               ProvidersProperties props) {
+        return new IdempotentResults<>(redis, json, PENDING_PAYMENTS, props.resultsTtl(), GatewayController.Pending.class);
     }
 }

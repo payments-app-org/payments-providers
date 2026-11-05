@@ -1,8 +1,13 @@
 package com.paymentsapp.providers;
 
 import com.paymentsapp.platform.redis.IdempotentResults;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -28,6 +33,8 @@ import org.springframework.web.bind.annotation.RestController;
 // Делает вид, что поставщик зачислил деньги или выпустил ваучер.
 // Отказывает, если номер счёта / карты / аккаунта (от 6 цифр) оканчивается на 0000 или логин — «banned».
 // Идемпотентно: повтор с тем же paymentId — тот же ответ; итоги — в Redis с TTL.
+// Поставщики из providers.async.providers (подписка через партнёра) проводят оплату не сразу: отвечают PENDING,
+// окончательный итог отдают на запрос статуса через providers.async.delay.
 @RestController
 @RequestMapping("/gateway")
 public class GatewayController {
@@ -72,18 +79,23 @@ public class GatewayController {
             new Service("Секция плавания", "Бассейн, 8 занятий", 2500, 4500),
             new Service("Подготовка к ЕГЭ", "Математика, 8 занятий", 4000, 8000));
 
+    private static final String PENDING_NOTE = "Партнёр оформляет подписку";
+
     private final IdempotentResults<Result> results;
+    private final IdempotentResults<Pending> pending;
     private final ProvidersProperties props;
     private final Clock clock;
 
-    public GatewayController(IdempotentResults<Result> results, ProvidersProperties props, Clock clock) {
-        this.results = results;
+    public GatewayController(IdempotentResults<Result> gatewayResults, IdempotentResults<Pending> pendingResults,
+                             ProvidersProperties props, Clock clock) {
+        this.results = gatewayResults;
+        this.pending = pendingResults;
         this.props = props;
         this.clock = clock;
     }
 
     @PostMapping("/payments")
-    public Result pay(@RequestBody PayRequest req) throws InterruptedException {
+    public Result pay(@Valid @RequestBody PayRequest req) throws InterruptedException {
         Result cached = results.find(req.paymentId()).orElse(null);
         if (cached != null) {
             return cached;
@@ -98,12 +110,21 @@ public class GatewayController {
                 : new Result(req.paymentId(), Status.ACCEPTED, integration.prefix() + "-"
                         + Long.toString(Math.abs(ThreadLocalRandom.current().nextLong()), ID_RADIX).toUpperCase(),
                         req.issueVoucher() ? voucher() : null, CREDITED);
+        if (props.async().providers().contains(req.providerCode())) {
+            // Итог решён, но поставщик «проведёт» его позже
+            Result accepted = new Result(req.paymentId(), Status.PENDING, null, null, PENDING_NOTE);
+            Result first = results.putIfAbsent(req.paymentId(), accepted);
+            if (first == accepted) {
+                pending.putIfAbsent(req.paymentId(), new Pending(result, clock.instant().plus(props.async().delay())));
+            }
+            return first;
+        }
         return results.putIfAbsent(req.paymentId(), result);
     }
 
     // Счета у поставщика по данным плательщика. «Случайные», но одинаковые для одних и тех же данных.
     @PostMapping("/invoices")
-    public List<Invoice> invoices(@RequestBody InvoiceRequest req) {
+    public List<Invoice> invoices(@Valid @RequestBody InvoiceRequest req) {
         Map<String, String> fields = req.fields() == null ? Map.of() : req.fields();
         String key = req.providerCode() + KEY_SEPARATOR + new TreeMap<>(fields).values().stream()
                 .filter(v -> v != null && v.matches(HAS_DIGIT)).reduce("", String::concat);
@@ -132,7 +153,22 @@ public class GatewayController {
 
     @GetMapping("/payments/{paymentId}")
     public ResponseEntity<Result> find(@PathVariable UUID paymentId) {
-        return results.find(paymentId).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+        return results.find(paymentId).map(this::completedIfDue).map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Долгая оплата: срок подошёл — отдаём и запоминаем окончательный итог
+    private Result completedIfDue(Result stored) {
+        if (stored.status() != Status.PENDING) {
+            return stored;
+        }
+        return pending.find(stored.paymentId())
+                .filter(p -> !clock.instant().isBefore(p.readyAt()))
+                .map(p -> {
+                    results.replace(stored.paymentId(), p.result());
+                    return p.result();
+                })
+                .orElse(stored);
     }
 
     private static String rejectReason(Integration integration, Map<String, String> fields) {
@@ -160,16 +196,21 @@ public class GatewayController {
         return sb.toString();
     }
 
-    public enum Status { ACCEPTED, REJECTED }
+    // PENDING — принят, итог позже (долгая оплата)
+    public enum Status { ACCEPTED, REJECTED, PENDING }
+
+    // Будущий итог долгой оплаты и когда его отдавать
+    public record Pending(Result result, Instant readyAt) {
+    }
 
     private record Service(String title, String description, int min, int max) {
     }
 
-    public record PayRequest(UUID paymentId, String integration, String providerCode, BigDecimal amount,
-                             Map<String, String> fields, boolean issueVoucher) {
+    public record PayRequest(@NotNull UUID paymentId, @NotBlank String integration, @NotBlank String providerCode,
+                             @NotNull @Positive BigDecimal amount, Map<String, String> fields, boolean issueVoucher) {
     }
 
-    public record InvoiceRequest(String providerCode, String group, Map<String, String> fields) {
+    public record InvoiceRequest(@NotBlank String providerCode, @NotBlank String group, Map<String, String> fields) {
     }
 
     public record Invoice(String externalId, String title, String description, BigDecimal amount, LocalDate dueDate) {

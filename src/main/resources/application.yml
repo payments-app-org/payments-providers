@@ -24,6 +24,10 @@ providers:
   # «Поставщик думает» — задержка ответа шлюза
   think-min: 200ms
   think-max: 600ms
+  # Долгие оплаты: подписка через партнёра — PENDING, итог на запрос статуса через delay
+  async:
+    providers: [chatgpt]
+    delay: ${PROVIDERS_ASYNC_DELAY:30s}
 
 # Общая библиотека libs/platform: даты начислений и счетов — по московскому времени
 platform:
